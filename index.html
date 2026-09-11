@@ -564,10 +564,9 @@ function render(precios, pedidos, gastos, reparaciones, reparacionesItems){
   const productosRank = precios
     .filter(pr => pr["Producto"] && !pr["Producto"].startsWith("Reparación"))
     .map(pr => pr["Producto"]);
-  productosRank.push("Reparación");
 
   const rankData = productosRank.map(nombre => {
-    const items = pedidosAnio.filter(p => p["Producto"] === nombre || (nombre==="Reparación" && p["Producto"]==="Reparación"));
+    const items = pedidosAnio.filter(p => p["Producto"] === nombre);
     const ingresos = items.reduce((s,p)=>s+toNumber(p["Total a cobrar"]),0);
     const unidades = items.length;
     return {nombre, ingresos, unidades};
