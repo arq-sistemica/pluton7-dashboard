@@ -196,6 +196,29 @@
   .estado-card.vencido .n{color:var(--oxide);}
 
   /* ---------- ALERTAS ---------- */
+  .alert-ping{
+    position:relative;
+    display:inline-block;
+    width:18px;height:18px;
+    margin-left:12px;
+    vertical-align:middle;
+  }
+  .alert-ping[hidden]{display:none;}
+  .alert-ping .ring,
+  .alert-ping .core{
+    position:absolute;
+    inset:0;
+    border-radius:50%;
+    background:var(--oxide);
+  }
+  .alert-ping .ring{animation:alert-pulse 0.9s cubic-bezier(0.4,0,0.6,1) infinite;}
+  @keyframes alert-pulse{
+    0%{transform:scale(1);opacity:0.55;}
+    75%,100%{transform:scale(2.6);opacity:0;}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .alert-ping .ring{animation:none;opacity:0;}
+  }
   .alerta{
     border-left:2px solid var(--oxide);
     padding:10px 16px;
@@ -275,7 +298,7 @@
   </div>
 
   <section>
-    <div class="section-title">Alertas</div>
+    <div class="section-title">Alertas<span class="alert-ping" id="alertPing" hidden><span class="ring"></span><span class="core"></span></span></div>
     <div class="section-note">Pedidos que necesitan atención esta semana</div>
     <div id="alertasBox"></div>
   </section>
@@ -473,6 +496,9 @@ function render(precios, pedidos, gastos, reparaciones, reparacionesItems){
     const est = p["Estado de entrega"];
     return est === "Vencido" || est === "Por vencer";
   });
+  const alertPing = document.getElementById("alertPing");
+  if(alertPing) alertPing.hidden = alertas.length === 0;
+
   const alertasBox = document.getElementById("alertasBox");
   if(alertas.length===0){
     alertasBox.innerHTML = '<div class="empty">Sin pedidos vencidos ni próximos a vencer.</div>';
