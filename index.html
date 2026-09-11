@@ -20,6 +20,7 @@
     --ochre:     #D3A82C;
     --oxide:     #B04B32;
     --rule:      #3A2C1C;
+    --chart-ingresos: #6F9450;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
@@ -168,6 +169,18 @@
   }
   .reparacion-sub{font-size:11px;color:var(--muted);margin-top:2px;}
 
+  /* ---------- GRÁFICO MENSUAL ---------- */
+  .chart-legend{display:flex;gap:20px;margin-bottom:14px;font-size:12px;color:var(--muted);}
+  .chart-legend .item{display:flex;align-items:center;gap:6px;}
+  .chart-legend .swatch{width:10px;height:10px;border-radius:2px;display:inline-block;}
+  .chart-legend .swatch.ingresos{background:var(--chart-ingresos);}
+  .chart-legend .swatch.gastos{background:var(--oxide);}
+  .mensual-chart{width:100%;height:auto;display:block;}
+  .mensual-chart .gridline{stroke:var(--rule);stroke-width:1;}
+  .mensual-chart .month-label{fill:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:10px;text-anchor:middle;}
+  .mensual-chart .bar-ingresos{fill:var(--chart-ingresos);}
+  .mensual-chart .bar-gastos{fill:var(--oxide);}
+
   /* ---------- BARS (ranking / gastos) ---------- */
   .bar-row{margin-bottom:16px;}
   .bar-head{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;}
@@ -298,6 +311,12 @@
   </div>
 
   <section>
+    <div class="section-title">Ingresos y gastos por mes</div>
+    <div class="section-note">Instrumentos + reparaciones vs. compras a proveedores, año actual</div>
+    <div id="mensualChartBox"></div>
+  </section>
+
+  <section>
     <div class="section-title">Alertas<span class="alert-ping" id="alertPing" hidden><span class="ring"></span><span class="core"></span></span></div>
     <div class="section-note">Pedidos que necesitan atención esta semana</div>
     <div id="alertasBox"></div>
@@ -407,6 +426,35 @@ function fmtARS(n){
   return "$" + Math.round(n).toLocaleString("es-AR");
 }
 
+const MESES_ABREV = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+
+function renderMensualChart(ingresosPorMes, gastosPorMes){
+  const W = 700, top = 10, baseline = 170;
+  const maxVal = Math.max(1, ...ingresosPorMes, ...gastosPorMes) * 1.15;
+  const slotW = W / 12;
+  const barW = slotW * 0.32;
+  const gap = slotW * 0.08;
+
+  const gridLines = [0,0.25,0.5,0.75,1].map(f => {
+    const y = (top + (baseline-top) * (1-f)).toFixed(1);
+    return `<line x1="0" y1="${y}" x2="${W}" y2="${y}" class="gridline"/>`;
+  }).join("");
+
+  let bars = "", months = "";
+  for(let i=0;i<12;i++){
+    const cx = i*slotW + slotW/2;
+    const hIng = (ingresosPorMes[i]/maxVal) * (baseline-top);
+    const hGas = (gastosPorMes[i]/maxVal) * (baseline-top);
+    const xIng = cx - gap/2 - barW;
+    const xGas = cx + gap/2;
+    bars += `<rect class="bar-ingresos" x="${xIng.toFixed(1)}" y="${(baseline-hIng).toFixed(1)}" width="${barW.toFixed(1)}" height="${hIng.toFixed(1)}" rx="2"><title>Ingresos ${MESES_ABREV[i]}: ${fmtARS(ingresosPorMes[i])}</title></rect>`;
+    bars += `<rect class="bar-gastos" x="${xGas.toFixed(1)}" y="${(baseline-hGas).toFixed(1)}" width="${barW.toFixed(1)}" height="${hGas.toFixed(1)}" rx="2"><title>Gastos ${MESES_ABREV[i]}: ${fmtARS(gastosPorMes[i])}</title></rect>`;
+    months += `<text class="month-label" x="${cx.toFixed(1)}" y="${baseline+16}">${MESES_ABREV[i]}</text>`;
+  }
+
+  return `<svg class="mensual-chart" viewBox="0 0 ${W} ${baseline+24}" xmlns="http://www.w3.org/2000/svg">${gridLines}${bars}${months}</svg>`;
+}
+
 async function fetchCSV(url){
   const res = await fetch(url, {cache:"no-store"});
   if(!res.ok) throw new Error("HTTP " + res.status);
@@ -469,17 +517,25 @@ function render(precios, pedidos, gastos, reparaciones, reparacionesItems){
     const [y,m,d] = (g["Fecha"]||"").split("-").map(Number);
     return y ? new Date(y, (m||1)-1, d||1) : null;
   };
+  const reparacionDate = r => {
+    const [y,m,d] = (r["Fecha de inicio"]||"").split("-").map(Number);
+    return y ? new Date(y, (m||1)-1, d||1) : null;
+  };
 
   const pedidosAnio = pedidos.filter(p => { const d=pedidosDate(p); return d && d.getFullYear()===yr; });
   const pedidosMes  = pedidosAnio.filter(p => { const d=pedidosDate(p); return d.getMonth()===mo; });
   const gastosAnio  = gastos.filter(g => { const d=gastoDate(g); return d && d.getFullYear()===yr; });
   const gastosMes   = gastosAnio.filter(g => { const d=gastoDate(g); return d.getMonth()===mo; });
+  const reparacionesAnio = reparaciones.filter(r => { const d=reparacionDate(r); return d && d.getFullYear()===yr; });
+  const reparacionesMes  = reparacionesAnio.filter(r => { const d=reparacionDate(r); return d.getMonth()===mo; });
 
-  const ingresosAnio = pedidosAnio.reduce((s,p)=>s+toNumber(p["Total a cobrar"]),0);
+  const ingresosAnio = pedidosAnio.reduce((s,p)=>s+toNumber(p["Total a cobrar"]),0)
+                      + reparacionesAnio.reduce((s,r)=>s+toNumber(r["Monto total"]),0);
   const gastosAnioTotal = gastosAnio.reduce((s,g)=>s+toNumber(g["Monto"]),0);
   const margenAnio = ingresosAnio - gastosAnioTotal;
   const margenPct = ingresosAnio>0 ? (margenAnio/ingresosAnio*100) : 0;
-  const ingresosMes = pedidosMes.reduce((s,p)=>s+toNumber(p["Total a cobrar"]),0);
+  const ingresosMes = pedidosMes.reduce((s,p)=>s+toNumber(p["Total a cobrar"]),0)
+                     + reparacionesMes.reduce((s,r)=>s+toNumber(r["Monto total"]),0);
   const gastosMesTotal = gastosMes.reduce((s,g)=>s+toNumber(g["Monto"]),0);
 
   document.getElementById("heroIngresos").textContent = fmtARS(ingresosAnio);
@@ -490,6 +546,20 @@ function render(precios, pedidos, gastos, reparaciones, reparacionesItems){
   mp.className = "stat-value " + (margenPct>=50?"pos":margenPct<0?"neg":"");
   document.getElementById("statIngresosMes").textContent = fmtARS(ingresosMes);
   document.getElementById("statGastosMes").textContent = fmtARS(gastosMesTotal);
+
+  /* ---- GRÁFICO MENSUAL ---- */
+  const ingresosPorMes = new Array(12).fill(0);
+  const gastosPorMes = new Array(12).fill(0);
+  pedidosAnio.forEach(p => { const d=pedidosDate(p); if(d) ingresosPorMes[d.getMonth()] += toNumber(p["Total a cobrar"]); });
+  reparacionesAnio.forEach(r => { const d=reparacionDate(r); if(d) ingresosPorMes[d.getMonth()] += toNumber(r["Monto total"]); });
+  gastosAnio.forEach(g => { const d=gastoDate(g); if(d) gastosPorMes[d.getMonth()] += toNumber(g["Monto"]); });
+
+  document.getElementById("mensualChartBox").innerHTML =
+    '<div class="chart-legend">'
+    + '<span class="item"><span class="swatch ingresos"></span>Ingresos</span>'
+    + '<span class="item"><span class="swatch gastos"></span>Gastos</span>'
+    + '</div>'
+    + renderMensualChart(ingresosPorMes, gastosPorMes);
 
   /* ---- ALERTAS ---- */
   const alertas = pedidos.filter(p => {
