@@ -144,6 +144,30 @@
   }
   .pedido-dias{font-size:11px;color:var(--muted);margin-top:2px;}
 
+  /* ---------- REPARACIONES (LEDGER ROWS) ---------- */
+  .reparacion{
+    border-bottom:1px solid var(--rule);
+    padding:16px 0;
+    display:grid;
+    grid-template-columns:auto 1fr auto;
+    gap:14px;
+    align-items:start;
+  }
+  .reparacion-main{min-width:0;}
+  .reparacion-cliente{color:var(--parchment);font-size:15px;}
+  .reparacion-items{color:var(--muted);font-size:13px;margin-top:2px;}
+  .reparacion-meta{display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;font-size:12px;color:var(--muted);align-items:center;}
+  .badge.pendiente{background:rgba(176,75,50,0.18);color:var(--oxide);}
+  .badge.sena-cobrada{background:rgba(211,168,44,0.15);color:var(--ochre);}
+  .badge.pagado-completo{background:rgba(143,160,109,0.15);color:var(--sage);}
+  .reparacion-total{
+    text-align:right;
+    color:var(--parchment);
+    font-size:15px;
+    white-space:nowrap;
+  }
+  .reparacion-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+
   /* ---------- BARS (ranking / gastos) ---------- */
   .bar-row{margin-bottom:16px;}
   .bar-head{display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;}
@@ -193,6 +217,8 @@
   @media (max-width:520px){
     .pedido{grid-template-columns:1fr;}
     .pedido-total{text-align:left;}
+    .reparacion{grid-template-columns:1fr;}
+    .reparacion-total{text-align:left;}
     .stamp{transform:none;}
   }
 </style>
@@ -272,6 +298,18 @@
   </section>
 
   <section>
+    <div class="section-title">Reparaciones por categoría</div>
+    <div class="section-note">Ítems de trabajo por tipo, año actual</div>
+    <div id="reparacionesCategoriaBox"></div>
+  </section>
+
+  <section>
+    <div class="section-title">Reparaciones en curso</div>
+    <div class="section-note">Sin cobrar el saldo completo todavía</div>
+    <div id="reparacionesEnCursoBox"></div>
+  </section>
+
+  <section>
     <div class="section-title">Gastos por categoría</div>
     <div class="section-note">Compras a proveedores, año actual</div>
     <div id="gastosBox"></div>
@@ -287,11 +325,15 @@
 const CSV_URLS = {
   precios:  "https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9gWshWzG3i6aWmmlJ6Lvaax_MEo2KAPv3-y_Tx9Ut_h9naWPmI-0c-Z5je2KE945_3IbWkG7rOjs/pub?gid=871883707&single=true&output=csv",
   ingresos: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9gWshWzG3i6aWmmlJ6Lvaax_MEo2KAPv3-y_Tx9Ut_h9naWPmI-0c-Z5je2KE945_3IbWkG7rOjs/pub?gid=1595049289&single=true&output=csv",
-  gastos:   "https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9gWshWzG3i6aWmmlJ6Lvaax_MEo2KAPv3-y_Tx9Ut_h9naWPmI-0c-Z5je2KE945_3IbWkG7rOjs/pub?gid=1486600945&single=true&output=csv"
+  gastos:   "https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9gWshWzG3i6aWmmlJ6Lvaax_MEo2KAPv3-y_Tx9Ut_h9naWPmI-0c-Z5je2KE945_3IbWkG7rOjs/pub?gid=1486600945&single=true&output=csv",
+  reparaciones:      "https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9gWshWzG3i6aWmmlJ6Lvaax_MEo2KAPv3-y_Tx9Ut_h9naWPmI-0c-Z5je2KE945_3IbWkG7rOjs/pub?gid=1313582467&single=true&output=csv",
+  reparacionesItems: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQI9gWshWzG3i6aWmmlJ6Lvaax_MEo2KAPv3-y_Tx9Ut_h9naWPmI-0c-Z5je2KE945_3IbWkG7rOjs/pub?gid=1557008002&single=true&output=csv"
 };
 
 const CATEGORIAS_GASTO_ORDEN = ["Madera","Aros quebracho","Cueros","Tientos","Arillos","Herramientas","Otros"];
+const CATEGORIAS_REPARACION_ORDEN = ["Parches","Aros","Tientos","Arillos","Otros"];
 const ESTADOS_ENTREGA_ORDEN = ["En plazo","Por vencer","Vencido","Entregado"];
+const ESTADO_PAGO_CLASS = {"Pendiente":"pendiente", "Seña cobrada":"sena-cobrada", "Pagado completo":"pagado-completo"};
 
 /* ---------- CSV PARSER (respeta comillas y comas internas) ---------- */
 function parseCSV(text){
@@ -364,7 +406,23 @@ async function loadAll(){
     const pedidos  = extractTable(ingresosRows, "Fecha de pedido (= 1er pago)").data;
     const gastos   = extractTable(gastosRows, "Fecha").data;
 
-    render(precios, pedidos, gastos);
+    // Reparaciones se cargan aparte: si todavía no se publicaron esas pestañas
+    // como CSV, no debe romper el resto del dashboard.
+    let reparaciones = [], reparacionesItems = [];
+    if(CSV_URLS.reparaciones && CSV_URLS.reparacionesItems){
+      try{
+        const [repRows, repItemsRows] = await Promise.all([
+          fetchCSV(CSV_URLS.reparaciones),
+          fetchCSV(CSV_URLS.reparacionesItems)
+        ]);
+        reparaciones = extractTable(repRows, "Fecha de inicio").data;
+        reparacionesItems = extractTable(repItemsRows, "Fecha").data;
+      } catch(repErr){
+        console.error("Reparaciones:", repErr);
+      }
+    }
+
+    render(precios, pedidos, gastos, reparaciones, reparacionesItems);
 
     const now = new Date();
     txt.textContent = "Actualizado " + now.toLocaleTimeString("es-AR", {hour:"2-digit", minute:"2-digit"});
@@ -375,7 +433,7 @@ async function loadAll(){
   }
 }
 
-function render(precios, pedidos, gastos){
+function render(precios, pedidos, gastos, reparaciones, reparacionesItems){
   const now = new Date();
   const yr = now.getFullYear();
   const mo = now.getMonth();
@@ -500,6 +558,67 @@ function render(precios, pedidos, gastos){
       <div class="bar-track"><div class="bar-fill" style="width:${(r.ingresos/maxIngreso*100).toFixed(1)}%"></div></div>
     </div>
   `).join("");
+
+  /* ---- REPARACIONES POR CATEGORÍA Y EN CURSO ---- */
+  const repCatBox = document.getElementById("reparacionesCategoriaBox");
+  const repCursoBox = document.getElementById("reparacionesEnCursoBox");
+
+  if(!CSV_URLS.reparaciones || !CSV_URLS.reparacionesItems){
+    repCatBox.innerHTML = '<div class="empty">Todavía no publicaste "Reparaciones" y "Reparaciones - Ítems" como CSV — completá los links en CSV_URLS.</div>';
+    repCursoBox.innerHTML = '';
+  } else {
+    const itemDate = it => {
+      const [y,m,d] = (it["Fecha"]||"").split("-").map(Number);
+      return y ? new Date(y, (m||1)-1, d||1) : null;
+    };
+    const itemsAnio = reparacionesItems.filter(it => { const d=itemDate(it); return d && d.getFullYear()===yr; });
+
+    const repCatData = CATEGORIAS_REPARACION_ORDEN.map(cat => {
+      const items = itemsAnio.filter(it => (it["Categoría"]||"Otros") === cat);
+      const ingresos = items.reduce((s,it)=>s+toNumber(it["Monto"]),0);
+      const unidades = items.reduce((s,it)=>s+(toNumber(it["Cantidad"])||1),0);
+      return {cat, ingresos, unidades};
+    }).sort((a,b)=>b.ingresos-a.ingresos);
+
+    const maxRepIngreso = Math.max(1, ...repCatData.map(r=>r.ingresos));
+    repCatBox.innerHTML = repCatData.map(r => `
+      <div class="bar-row">
+        <div class="bar-head">
+          <span class="name">${r.cat}</span>
+          <span class="val">${r.unidades} ítem${r.unidades===1?'':'s'} · ${fmtARS(r.ingresos)}</span>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:${(r.ingresos/maxRepIngreso*100).toFixed(1)}%"></div></div>
+      </div>
+    `).join("");
+
+    const enCursoReparaciones = reparaciones.filter(r => r["Estado de pago"] !== "Pagado completo");
+    if(enCursoReparaciones.length===0){
+      repCursoBox.innerHTML = '<div class="empty">No hay reparaciones en curso.</div>';
+    } else {
+      repCursoBox.innerHTML = enCursoReparaciones.map(r => {
+        const serie = r["Nº de serie / instrumento"];
+        const categorias = [...new Set(reparacionesItems.filter(it => it["Nº de serie / instrumento"]===serie).map(it => it["Categoría"]))];
+        const estado = r["Estado de pago"];
+        const cls = ESTADO_PAGO_CLASS[estado] || "pendiente";
+        const pendiente = estado === "Seña cobrada" ? toNumber(r["Saldo (50%)"]) : toNumber(r["Monto total"]);
+        return `
+          <div class="reparacion">
+            <div class="stamp">${serie||"—"}</div>
+            <div class="reparacion-main">
+              <div class="reparacion-cliente">${r["Cliente"]}</div>
+              <div class="reparacion-items">${categorias.join(" · ")||"—"}</div>
+              <div class="reparacion-meta">
+                <span class="badge ${cls}">${estado}</span>
+              </div>
+            </div>
+            <div>
+              <div class="reparacion-total">${fmtARS(pendiente)}</div>
+              <div class="reparacion-sub">saldo pendiente</div>
+            </div>
+          </div>`;
+      }).join("");
+    }
+  }
 
   /* ---- GASTOS POR CATEGORÍA ---- */
   const gastoPorCat = {};
