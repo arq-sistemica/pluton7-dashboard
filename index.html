@@ -178,6 +178,7 @@
   .mensual-chart{width:100%;height:auto;display:block;}
   .mensual-chart .gridline{stroke:var(--rule);stroke-width:1;}
   .mensual-chart .month-label{fill:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:10px;text-anchor:middle;}
+  .mensual-chart .axis-label{fill:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:10px;text-anchor:end;}
   .mensual-chart .bar-ingresos{fill:var(--chart-ingresos);}
   .mensual-chart .bar-gastos{fill:var(--oxide);}
 
@@ -428,21 +429,40 @@ function fmtARS(n){
 
 const MESES_ABREV = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
+function fmtCompact(n){
+  if(n>=1000) return "$" + Math.round(n/1000) + "k";
+  return "$" + Math.round(n);
+}
+
+// Redondea el paso de grilla a un número "lindo" (1/2/5 × potencia de 10),
+// así el eje muestra montos reales del negocio (ej. $100k, $150k) y no fracciones arbitrarias.
+function niceStep(roughStep){
+  const exp = Math.floor(Math.log10(roughStep));
+  const fraction = roughStep / Math.pow(10, exp);
+  const niceFraction = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 5 ? 5 : 10;
+  return niceFraction * Math.pow(10, exp);
+}
+
 function renderMensualChart(ingresosPorMes, gastosPorMes){
-  const W = 700, top = 10, baseline = 170;
-  const maxVal = Math.max(1, ...ingresosPorMes, ...gastosPorMes) * 1.15;
-  const slotW = W / 12;
+  const W = 700, top = 10, baseline = 170, leftPad = 46;
+  const plotW = W - leftPad;
+  const rawMax = Math.max(1, ...ingresosPorMes, ...gastosPorMes);
+  const step = niceStep(rawMax / 4);
+  const maxVal = step * 4;
+  const slotW = plotW / 12;
   const barW = slotW * 0.32;
   const gap = slotW * 0.08;
 
   const gridLines = [0,0.25,0.5,0.75,1].map(f => {
     const y = (top + (baseline-top) * (1-f)).toFixed(1);
-    return `<line x1="0" y1="${y}" x2="${W}" y2="${y}" class="gridline"/>`;
+    const label = fmtCompact(maxVal * f);
+    return `<line x1="${leftPad}" y1="${y}" x2="${W}" y2="${y}" class="gridline"/>`
+         + `<text class="axis-label" x="${leftPad-8}" y="${(+y+3).toFixed(1)}">${label}</text>`;
   }).join("");
 
   let bars = "", months = "";
   for(let i=0;i<12;i++){
-    const cx = i*slotW + slotW/2;
+    const cx = leftPad + i*slotW + slotW/2;
     const hIng = (ingresosPorMes[i]/maxVal) * (baseline-top);
     const hGas = (gastosPorMes[i]/maxVal) * (baseline-top);
     const xIng = cx - gap/2 - barW;
